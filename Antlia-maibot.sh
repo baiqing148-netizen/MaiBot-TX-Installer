@@ -132,23 +132,26 @@ install_conda_environment() {
 
     cd "$SCRIPT_DIR"  # 切换到脚本目录
     # 2. 检查是否已有安装包
-    if [ -f "miniconda.sh" ]; then
-        ok "发现 miniconda.sh 文件，直接使用"
-    else
-        info "尝试从清华源下载Miniconda安装脚本"
-        # 优先清华源，失败则官方源
-        if wget https://mirrors.tuna.tsinghua.edu.cn/anaconda/miniconda/Miniconda3-latest-Linux-$MINICONDA_ARCH.sh -O miniconda.sh; then
-            ok "已从清华源下载Miniconda安装脚本"
-        else
-            warn "清华源下载失败，尝试官方源"
-            if wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-$MINICONDA_ARCH.sh -O miniconda.sh; then
-                ok "已从官方源下载Miniconda安装脚本"
-            else
-                err "Miniconda安装脚本下载失败，请检查网络或手动下载"
-                exit 1
-            fi
-        fi
-    fi
+ # 检测 conda 或 micromamba 环境
+if ! command -v conda >/dev/null 2>&1 && ! command -v micromamba >/dev/null 2>&1; then
+    info "未检测到 conda/micromamba 环境，正在安装轻量版 micromamba..."
+    pkg install curl tar -y >/dev/null 2>&1
+
+    mkdir -p "$HOME/micromamba"
+    cd "$HOME" || exit 1
+
+    info "下载 micromamba 二进制"
+    curl -Ls https://micro.mamba.pm/api/micromamba/linux-aarch64/latest | tar -xvj bin/micromamba >/dev/null 2>&1
+
+    info "初始化 micromamba 环境"
+    ./bin/micromamba shell init -s bash -p "$HOME/micromamba"
+    export PATH="$HOME/bin:$PATH"
+    alias conda=micromamba
+
+    ok "micromamba 安装完成，可替代 conda 使用"
+else
+    ok "检测到 conda 或 micromamba 环境，跳过安装"
+fi
 
     # 3. 运行安装脚本（-b无交互，-u覆盖，-p指定路径）
     info "运行安装脚本（无交互模式）"
