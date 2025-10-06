@@ -21,12 +21,32 @@ log_warn "请确保您的Android设备满足以下要求：Android 7.0+，至少
 log_warn "在ZeroTermux中，当出现 (Y/I/N/O/D/Z)[default=?] 或 [Y/N] 时，直接点击回车选择默认选项即可。"
 
 # --- Termux 环境初始化 --- #
-log_info "[Termux] 正在更新 Termux 包列表并安装 wget 和 proot-distro..."
+log_info "[Termux] 正在更新 Termux 包列表..."
 pkg update -y && pkg upgrade -y || log_error "Termux 包更新失败。"
-pkg install wget proot-distro -y || log_error "wget 或 proot-distro 安装失败。"
 
-log_info "[Termux] 正在安装 Ubuntu..."
-proot-distro install ubuntu || log_error "Ubuntu 安装失败。"
+# 检查并安装 proot-distro
+if pkg list-installed | grep -q "proot-distro"; then
+    log_info "[Termux] proot-distro 已安装，跳过安装。"
+else
+    log_info "[Termux] 正在安装 proot-distro..."
+    pkg install proot-distro -y || log_error "proot-distro 安装失败。"
+fi
+
+# 检查并安装 wget
+if pkg list-installed | grep -q "wget"; then
+    log_info "[Termux] wget 已安装，跳过安装。"
+else
+    log_info "[Termux] 正在安装 wget..."
+    pkg install wget -y || log_error "wget 安装失败。"
+fi
+
+# 检查并安装 Ubuntu
+if proot-distro list | grep -q "ubuntu"; then
+    log_info "[Termux] Ubuntu 已安装，跳过安装。"
+else
+    log_info "[Termux] 正在安装 Ubuntu..."
+    proot-distro install ubuntu || log_error "Ubuntu 安装失败。"
+fi
 
 log_info "[Termux] 正在登录到 Ubuntu 环境并执行后续部署步骤..."
 
@@ -43,8 +63,7 @@ if [[ "$CREATE_USER" =~ ^[Yy]$ ]]; then
 fi
 
 # 创建一个临时脚本，用于在Ubuntu环境中执行
-# 注意：这里将内部脚本的EOF标记改为EOF_UBUNTU，以避免与外部脚本的EOF冲突
-cat << 'EOF_UBUNTU_SCRIPT' > ubuntu_deploy_internal.sh
+cat << \'EOF_UBUNTU_SCRIPT\' > ubuntu_deploy_internal.sh
 #!/bin/bash
 
 RED=\'\\033[0;31m\'
@@ -62,18 +81,41 @@ log_info "[Ubuntu] 成功进入 Ubuntu 环境。"
 log_info "[Ubuntu] 正在更新 apt 包列表..."
 apt update || log_error "apt update 失败。"
 
-log_info "[Ubuntu] 正在安装必要的软件..."
-apt install -y sudo vim git python3-dev python3.12-venv build-essential screen curl python3-pip wget || log_error "必要软件安装失败。"
+# 检查并安装必要的软件
+install_package_if_not_exists() {
+    PACKAGE_NAME=$1
+    if dpkg -s $PACKAGE_NAME &> /dev/null; then
+        log_info "[Ubuntu] $PACKAGE_NAME 已安装，跳过安装。"
+    else
+        log_info "[Ubuntu] 正在安装 $PACKAGE_NAME..."
+        apt install -y $PACKAGE_NAME || log_error "$PACKAGE_NAME 安装失败。"
+    fi
+}
+
+install_package_if_not_exists sudo
+install_package_if_not_exists vim
+install_package_if_not_exists git
+install_package_if_not_exists python3-dev
+install_package_if_not_exists python3.12-venv
+install_package_if_not_exists build-essential
+install_package_if_not_exists screen
+install_package_if_not_exists curl
+install_package_if_not_exists python3-pip
+install_package_if_not_exists wget
 
 USERNAME_TO_CREATE="$USERNAME"
 if [[ -n "$USERNAME_TO_CREATE" ]]; then
     log_info "[Ubuntu] 正在创建非root用户: $USERNAME_TO_CREATE ..."
-    adduser --disabled-password --gecos "" $USERNAME_TO_CREATE || log_error "创建用户 $USERNAME_TO_CREATE 失败。"
-    usermod -aG sudo $USERNAME_TO_CREATE || log_error "添加sudo权限给 $USERNAME_TO_CREATE 失败。"
-    log_info "[Ubuntu] 用户 $USERNAME_TO_CREATE 创建成功并已添加sudo权限。"
+    if id -u "$USERNAME_TO_CREATE" >/dev/null 2>&1; then
+        log_info "[Ubuntu] 用户 $USERNAME_TO_CREATE 已存在，跳过创建。"
+    else
+        adduser --disabled-password --gecos "" $USERNAME_TO_CREATE || log_error "创建用户 $USERNAME_TO_CREATE 失败。"
+        usermod -aG sudo $USERNAME_TO_CREATE || log_error "添加sudo权限给 $USERNAME_TO_CREATE 失败。"
+        log_info "[Ubuntu] 用户 $USERNAME_TO_CREATE 创建成功并已添加sudo权限。"
+    fi
     log_info "[Ubuntu] 切换到新用户 $USERNAME_TO_CREATE ..."
     # 切换用户后，后续命令将在新用户下执行
-    exec su -l $USERNAME_TO_CREATE -c "bash -s" <<'EOF_INNER_USER'
+    exec su -l $USERNAME_TO_CREATE -c "bash -s" <<\'EOF_INNER_USER\'
     RED=\'\\033[0;31m\'
     GREEN=\'\\033[0;32m\'
     YELLOW=\'\\033[0;33m\'
@@ -89,37 +131,64 @@ if [[ -n "$USERNAME_TO_CREATE" ]]; then
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在创建 maimai 文件夹并克隆代码库..."
     mkdir -p ~/maimai || log_error "创建 maimai 文件夹失败。"
     cd ~/maimai || log_error "进入 maimai 文件夹失败。"
-    git clone https://github.com/MaiM-with-u/MaiBot.git || log_error "克隆 MaiBot 失败。"
-    git clone https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git || log_error "克隆 MaiBot-Napcat-Adapter 失败。"
+    
+    if [ -d "MaiBot" ]; then
+        log_info "[Ubuntu - $USERNAME_TO_CREATE] MaiBot 仓库已存在，跳过克隆。"
+    else
+        git clone https://github.com/MaiM-with-u/MaiBot.git || log_error "克隆 MaiBot 失败。"
+    fi
+    
+    if [ -d "MaiBot-Napcat-Adapter" ]; then
+        log_info "[Ubuntu - $USERNAME_TO_CREATE] MaiBot-Napcat-Adapter 仓库已存在，跳过克隆。"
+    else
+        git clone https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git || log_error "克隆 MaiBot-Napcat-Adapter 失败。"
+    fi
 
     # --- 环境配置 (Python & uv) --- #
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 检查 Python 版本..."
     python3 --version || log_error "Python 未安装或版本不正确。"
 
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在安装 uv 包管理器..."
-    pip3 install uv --break-system-packages -i https://mirrors.huaweicloud.com/repository/pypi/simple/ || log_error "uv 安装失败。"
+    if pip3 show uv &> /dev/null; then
+        log_info "[Ubuntu - $USERNAME_TO_CREATE] uv 已安装，跳过安装。"
+    else
+        pip3 install uv --break-system-packages -i https://mirrors.huaweicloud.com/repository/pypi/simple/ || log_error "uv 安装失败。"
+    fi
     grep -qF \'export PATH=\"$HOME/.local/bin:$PATH\"\' ~/.bashrc || echo \'export PATH=\"$HOME/.local/bin:$PATH\"\' >> ~/.bashrc
     source ~/.bashrc
 
     # --- 依赖安装 (使用 uv) --- #
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在为 MaiBot 安装依赖..."
     cd ~/maimai/MaiBot || log_error "进入 MaiBot 文件夹失败。"
-    uv venv || log_error "创建 MaiBot 虚拟环境失败。"
+    if [ -d "venv" ]; then
+        log_info "[Ubuntu - $USERNAME_TO_CREATE] MaiBot 虚拟环境已存在，跳过创建。"
+    else
+        uv venv || log_error "创建 MaiBot 虚拟环境失败。"
+    fi
     uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade || log_error "MaiBot 依赖安装失败。"
 
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在为 MaiBot-Napcat-Adapter 安装依赖..."
     cd ~/maimai/MaiBot-Napcat-Adapter || log_error "进入 MaiBot-Napcat-Adapter 文件夹失败。"
-    uv venv || log_error "创建 MaiBot-Napcat-Adapter 虚拟环境失败。"
+    if [ -d "venv" ]; then
+        log_info "[Ubuntu - $USERNAME_TO_CREATE] MaiBot-Napcat-Adapter 虚拟环境已存在，跳过创建。"
+    else
+        uv venv || log_error "创建 MaiBot-Napcat-Adapter 虚拟环境失败。"
+    fi
     uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade || log_error "MaiBot-Napcat-Adapter 依赖安装失败。"
     cp template/template_config.toml config.toml || log_error "复制 MaiBot-Napcat-Adapter 配置文件失败。"
 
     # --- NapCat 部署 --- #
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在安装 NapCat..."
-    wget -O napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
-    chmod +x napcat.sh
-    # 注意：NapCat安装脚本需要sudo权限，这里假设新用户有sudo权限
-    ./napcat.sh --docker n --cli y || log_error "NapCat 安装失败。"
-    rm napcat.sh
+    # 检查NapCat是否已安装，这里通过检查napcat命令是否存在来判断
+    if command -v napcat &> /dev/null; then
+        log_info "[Ubuntu - $USERNAME_TO_CREATE] NapCat 已安装，跳过安装。"
+    else
+        wget -O napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
+        chmod +x napcat.sh
+        # 注意：NapCat安装脚本需要sudo权限，这里假设新用户有sudo权限
+        ./napcat.sh --docker n --cli y || log_error "NapCat 安装失败。"
+        rm napcat.sh
+    fi
 
     log_warn "[Ubuntu - $USERNAME_TO_CREATE] NapCat 安装完成。接下来需要手动配置NapCat。"
     log_warn "请运行 \'sudo napcat\'，然后按照文档指示进行配置："
@@ -170,40 +239,88 @@ else
 
     log_info "[Ubuntu - root] 成功进入 Ubuntu 环境。"
 
+    # 检查并安装必要的软件
+    install_package_if_not_exists() {
+        PACKAGE_NAME=$1
+        if dpkg -s $PACKAGE_NAME &> /dev/null; then
+            log_info "[Ubuntu] $PACKAGE_NAME 已安装，跳过安装。"
+        else
+            log_info "[Ubuntu] 正在安装 $PACKAGE_NAME..."
+            apt install -y $PACKAGE_NAME || log_error "$PACKAGE_NAME 安装失败。"
+        fi
+    }
+
+    install_package_if_not_exists sudo
+    install_package_if_not_exists vim
+    install_package_if_not_exists git
+    install_package_if_not_exists python3-dev
+    install_package_if_not_exists python3.12-venv
+    install_package_if_not_exists build-essential
+    install_package_if_not_exists screen
+    install_package_if_not_exists curl
+    install_package_if_not_exists python3-pip
+    install_package_if_not_exists wget
+
     # --- 获取必要的文件 --- #
     log_info "[Ubuntu - root] 正在创建 maimai 文件夹并克隆代码库..."
     mkdir -p ~/maimai || log_error "创建 maimai 文件夹失败。"
     cd ~/maimai || log_error "进入 maimai 文件夹失败。"
-    git clone https://github.com/MaiM-with-u/MaiBot.git || log_error "克隆 MaiBot 失败。"
-    git clone https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git || log_error "克隆 MaiBot-Napcat-Adapter 失败。"
+    
+    if [ -d "MaiBot" ]; then
+        log_info "[Ubuntu - root] MaiBot 仓库已存在，跳过克隆。"
+    else
+        git clone https://github.com/MaiM-with-u/MaiBot.git || log_error "克隆 MaiBot 失败。"
+    fi
+    
+    if [ -d "MaiBot-Napcat-Adapter" ]; then
+        log_info "[Ubuntu - root] MaiBot-Napcat-Adapter 仓库已存在，跳过克隆。"
+    else
+        git clone https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git || log_error "克隆 MaiBot-Napcat-Adapter 失败。"
+    fi
 
     # --- 环境配置 (Python & uv) --- #
     log_info "[Ubuntu - root] 检查 Python 版本..."
     python3 --version || log_error "Python 未安装或版本不正确。"
 
     log_info "[Ubuntu - root] 正在安装 uv 包管理器..."
-    pip3 install uv --break-system-packages -i https://mirrors.huaweicloud.com/repository/pypi/simple/ || log_error "uv 安装失败。"
+    if pip3 show uv &> /dev/null; then
+        log_info "[Ubuntu - root] uv 已安装，跳过安装。"
+    else
+        pip3 install uv --break-system-packages -i https://mirrors.huaweicloud.com/repository/pypi/simple/ || log_error "uv 安装失败。"
+    fi
     grep -qF \'export PATH=\"$HOME/.local/bin:$PATH\"\' ~/.bashrc || echo \'export PATH=\"$HOME/.local/bin:$PATH\"\' >> ~/.bashrc
     source ~/.bashrc
 
     # --- 依赖安装 (使用 uv) --- #
     log_info "[Ubuntu - root] 正在为 MaiBot 安装依赖..."
     cd ~/maimai/MaiBot || log_error "进入 MaiBot 文件夹失败。"
-    uv venv || log_error "创建 MaiBot 虚拟环境失败。"
+    if [ -d "venv" ]; then
+        log_info "[Ubuntu - root] MaiBot 虚拟环境已存在，跳过创建。"
+    else
+        uv venv || log_error "创建 MaiBot 虚拟环境失败。"
+    fi
     uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade || log_error "MaiBot 依赖安装失败。"
 
     log_info "[Ubuntu - root] 正在为 MaiBot-Napcat-Adapter 安装依赖..."
     cd ~/maimai/MaiBot-Napcat-Adapter || log_error "进入 MaiBot-Napcat-Adapter 文件夹失败。"
-    uv venv || log_error "创建 MaiBot-Napcat-Adapter 虚拟环境失败。"
+    if [ -d "venv" ]; then
+        log_info "[Ubuntu - root] MaiBot-Napcat-Adapter 虚拟环境已存在，跳过创建。"
+    else
+        uv venv || log_error "创建 MaiBot-Napcat-Adapter 虚拟环境失败。"
+    fi
     uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple --upgrade || log_error "MaiBot-Napcat-Adapter 依赖安装失败。"
     cp template/template_config.toml config.toml || log_error "复制 MaiBot-Napcat-Adapter 配置文件失败。"
 
     # --- NapCat 部署 --- #
     log_info "[Ubuntu - root] 正在安装 NapCat..."
-    wget -O napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
-    chmod +x napcat.sh
-    ./napcat.sh --docker n --cli y || log_error "NapCat 安装失败。"
-    rm napcat.sh
+    if command -v napcat &> /dev/null; then
+        log_info "[Ubuntu - root] NapCat 已安装，跳过安装。"
+    else
+        wget -O napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
+        chmod +x napcat.sh
+        ./napcat.sh --docker n --cli y || log_error "NapCat 安装失败。"
+        rm napcat.sh
+    fi
 
     log_warn "[Ubuntu - root] NapCat 安装完成。接下来需要手动配置NapCat。"
     log_warn "请运行 \'sudo napcat\'，然后按照文档指示进行配置："
@@ -249,4 +366,4 @@ proot-distro login ubuntu --shared-tmp -- /tmp/ubuntu_deploy_internal.sh "$USERN
 rm ubuntu_deploy_internal.sh
 
 log_info "[Termux] 脚本执行完成。请手动登录到Ubuntu环境 (proot-distro login ubuntu) 以继续操作。"
-log_info "[Termux] 如果您创建了非root用户，请使用 \'su -l <username>\' 切换到该用户。
+log_info "[Termux] 如果您创建了非root用户，请使用 \'su -l <username>\' 切换到该用户。"
