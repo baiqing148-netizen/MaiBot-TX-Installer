@@ -49,7 +49,6 @@ else
 fi
 
 log_info "[Termux] 正在登录到 Ubuntu 环境并执行后续部署步骤..."
-
 # 询问用户是否创建非root用户
 read -p "是否要在Ubuntu中创建非root用户？(推荐，Y/n): " CREATE_USER
 CREATE_USER=${CREATE_USER:-Y}
