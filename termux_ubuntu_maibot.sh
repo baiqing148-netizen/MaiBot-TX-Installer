@@ -30,7 +30,7 @@ mkdir -p MaiBot && cd MaiBot
 # -----------------------------------------------
 if [ ! -d "MaiBot-MMC" ]; then
     echo "📥 正在下载 MaiBot-MMC ..."
-    git clone https://github.com/MaiMai-Dev/MaiBot-MMC.git
+    git clone git clone https://github.com/MaiM-with-u/MaiBot.git
 else
     echo "📁 检测到已存在 MaiBot-MMC 目录，跳过下载。"
 fi
