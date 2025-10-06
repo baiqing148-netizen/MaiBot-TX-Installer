@@ -4,7 +4,7 @@
 RED=\'\\033[0;31m\'
 GREEN=\'\\033[0;32m\'
 YELLOW=\'\\033[0;33m\'
-NC=\'\\033[0m\' # No Color
+NC=\'\\033[0m\'
 
 log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
 log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
@@ -21,8 +21,9 @@ log_warn "请确保您的Android设备满足以下要求：Android 7.0+，至少
 log_warn "在ZeroTermux中，当出现 (Y/I/N/O/D/Z)[default=?] 或 [Y/N] 时，直接点击回车选择默认选项即可。"
 
 # --- Termux 环境初始化 --- #
-log_info "[Termux] 正在安装 proot-distro..."
-pkg install proot-distro -y || log_error "proot-distro 安装失败。"
+log_info "[Termux] 正在更新 Termux 包列表并安装 wget 和 proot-distro..."
+pkg update -y && pkg upgrade -y || log_error "Termux 包更新失败。"
+pkg install wget proot-distro -y || log_error "wget 或 proot-distro 安装失败。"
 
 log_info "[Termux] 正在安装 Ubuntu..."
 proot-distro install ubuntu || log_error "Ubuntu 安装失败。"
@@ -42,13 +43,14 @@ if [[ "$CREATE_USER" =~ ^[Yy]$ ]]; then
 fi
 
 # 创建一个临时脚本，用于在Ubuntu环境中执行
-cat << EOF > ubuntu_deploy_internal.sh
+# 注意：这里将内部脚本的EOF标记改为EOF_UBUNTU，以避免与外部脚本的EOF冲突
+cat << 'EOF_UBUNTU_SCRIPT' > ubuntu_deploy_internal.sh
 #!/bin/bash
 
 RED=\'\\033[0;31m\'
 GREEN=\'\\033[0;32m\'
 YELLOW=\'\\033[0;33m\'
-NC=\'\\033[0m\' # No Color
+NC=\'\\033[0m\'
 
 log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
 log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
@@ -61,7 +63,7 @@ log_info "[Ubuntu] 正在更新 apt 包列表..."
 apt update || log_error "apt update 失败。"
 
 log_info "[Ubuntu] 正在安装必要的软件..."
-apt install -y sudo vim git python3-dev python3.12-venv build-essential screen curl python3-pip || log_error "必要软件安装失败。"
+apt install -y sudo vim git python3-dev python3.12-venv build-essential screen curl python3-pip wget || log_error "必要软件安装失败。"
 
 USERNAME_TO_CREATE="$USERNAME"
 if [[ -n "$USERNAME_TO_CREATE" ]]; then
@@ -71,11 +73,11 @@ if [[ -n "$USERNAME_TO_CREATE" ]]; then
     log_info "[Ubuntu] 用户 $USERNAME_TO_CREATE 创建成功并已添加sudo权限。"
     log_info "[Ubuntu] 切换到新用户 $USERNAME_TO_CREATE ..."
     # 切换用户后，后续命令将在新用户下执行
-    exec su -l $USERNAME_TO_CREATE -c "bash -s" <<\EOF_INNER
+    exec su -l $USERNAME_TO_CREATE -c "bash -s" <<'EOF_INNER_USER'
     RED=\'\\033[0;31m\'
     GREEN=\'\\033[0;32m\'
     YELLOW=\'\\033[0;33m\'
-    NC=\'\\033[0m\' # No Color
+    NC=\'\\033[0m\'
 
     log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
     log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
@@ -113,7 +115,7 @@ if [[ -n "$USERNAME_TO_CREATE" ]]; then
 
     # --- NapCat 部署 --- #
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在安装 NapCat..."
-    curl -o napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
+    wget -O napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
     chmod +x napcat.sh
     # 注意：NapCat安装脚本需要sudo权限，这里假设新用户有sudo权限
     ./napcat.sh --docker n --cli y || log_error "NapCat 安装失败。"
@@ -142,7 +144,7 @@ if [[ -n "$USERNAME_TO_CREATE" ]]; then
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 正在配置 MaiBot-Napcat-Adapter..."
     cd ~/maimai/MaiBot-Napcat-Adapter || log_error "进入 MaiBot-Napcat-Adapter 文件夹失败。"
     # 自动修改 config.toml
-    sed -i \'s/^port = 8082/port = 8095/\' config.toml
+    sed -i \'s/^port = 8082/port = 8095/' config.toml
     sed -i \'/^\[MaiBot_Server\]/a host = "localhost"\\nport = 8000\' config.toml
     sed -i \'/^\[MaiBot_Server\]/a platform_name = "qq"\' config.toml
 
@@ -150,7 +152,7 @@ if [[ -n "$USERNAME_TO_CREATE" ]]; then
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 部署脚本执行完毕。"
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 您现在可以手动启动MaiBot和Adapter。"
     log_info "[Ubuntu - $USERNAME_TO_CREATE] 祝您使用愉快！"
-EOF_INNER
+EOF_INNER_USER
     log_info "[Termux] 用户 $USERNAME_TO_CREATE 的部署流程已完成。"
 else
     log_warn "[Ubuntu] 您选择不创建非root用户，将继续使用root用户进行部署。"
@@ -160,7 +162,7 @@ else
     RED=\'\\033[0;31m\'
     GREEN=\'\\033[0;32m\'
     YELLOW=\'\\033[0;33m\'
-    NC=\'\\033[0m\' # No Color
+    NC=\'\\033[0m\'
 
     log_info() { echo -e "${GREEN}[INFO] $1${NC}"; }
     log_warn() { echo -e "${YELLOW}[WARN] $1${NC}"; }
@@ -198,7 +200,7 @@ else
 
     # --- NapCat 部署 --- #
     log_info "[Ubuntu - root] 正在安装 NapCat..."
-    curl -o napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
+    wget -O napcat.sh https://nclatest.znin.net/NapNeko/NapCat-Installer/main/script/install.sh || log_error "下载 NapCat 安装脚本失败。"
     chmod +x napcat.sh
     ./napcat.sh --docker n --cli y || log_error "NapCat 安装失败。"
     rm napcat.sh
@@ -226,7 +228,7 @@ else
     log_info "[Ubuntu - root] 正在配置 MaiBot-Napcat-Adapter..."
     cd ~/maimai/MaiBot-Napcat-Adapter || log_error "进入 MaiBot-Napcat-Adapter 文件夹失败。"
     # 自动修改 config.toml
-    sed -i \'s/^port = 8082/port = 8095/\' config.toml
+    sed -i \'s/^port = 8082/port = 8095/' config.toml
     sed -i \'/^\[MaiBot_Server\]/a host = "localhost"\\nport = 8000\' config.toml
     sed -i \'/^\[MaiBot_Server\]/a platform_name = "qq"\' config.toml
 
@@ -235,15 +237,16 @@ else
     log_info "[Ubuntu - root] 您现在可以手动启动MaiBot和Adapter。"
     log_info "[Ubuntu - root] 祝您使用愉快！"
 fi
-EOF
+EOF_UBUNTU_SCRIPT
 
 chmod +x ubuntu_deploy_internal.sh || log_error "无法为 ubuntu_deploy_internal.sh 添加执行权限。"
 
 # 在Ubuntu环境中执行内部脚本
-proot-distro login ubuntu --shared-tmp -- /tmp/ubuntu_deploy_internal.sh || log_error "在Ubuntu中执行部署脚本失败。"
+# 将Termux中的USERNAME变量传递给Ubuntu环境中的脚本
+proot-distro login ubuntu --shared-tmp -- /tmp/ubuntu_deploy_internal.sh "$USERNAME" || log_error "在Ubuntu中执行部署脚本失败。"
 
 # 清理临时脚本
 rm ubuntu_deploy_internal.sh
 
 log_info "[Termux] 脚本执行完成。请手动登录到Ubuntu环境 (proot-distro login ubuntu) 以继续操作。"
-log_info "[Termux] 如果您创建了非root用户，请使用 \'su -l <username>\' 切换到该用户。"
+log_info "[Termux] 如果您创建了非root用户，请使用 \'su -l <username>\' 切换到该用户。
