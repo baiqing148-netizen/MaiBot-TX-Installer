@@ -41,11 +41,13 @@ else
 fi
 
 # 检查并安装 Ubuntu
-if proot-distro list | grep -q "ubuntu"; then
+if proot-distro list | grep -qE '^ *ubuntu'; then
     log_info "[Termux] Ubuntu 已安装，跳过安装。"
 else
     log_info "[Termux] 正在安装 Ubuntu..."
-    proot-distro install ubuntu || log_error "Ubuntu 安装失败。"
+    if ! proot-distro install ubuntu; then
+        log_warn "[Termux] Ubuntu 安装失败，但继续执行脚本..."
+    fi
 fi
 
 log_info "[Termux] 正在登录到 Ubuntu 环境并执行后续部署步骤..."
