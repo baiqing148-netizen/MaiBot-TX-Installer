@@ -1,4 +1,5 @@
-
+pkg install wget -y > /dev/null 2>&1
+pkg install curl -y > /dev/null 2>&1
 #!/bin/bash
 
 # 获取脚本绝对路径
